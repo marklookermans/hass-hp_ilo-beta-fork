@@ -53,7 +53,7 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             "model": device.model,
             "host": device.host[0],
         }
-    async def async_step_ssdp(self, discovery_info: ssdp.SsdpServiceInfo) -> FlowResult:
+    async def async_step_ssdp(self, discovery_info: ssdp.homeassistant.helpers.service_info.ssdp.SsdpServiceInfo) -> FlowResult:
         """Handle a discovered HP iLO device."""
         _LOGGER.info(
                 "discovery_info : %s.",
