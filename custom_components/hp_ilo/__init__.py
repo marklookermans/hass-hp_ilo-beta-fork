@@ -17,20 +17,17 @@ from homeassistant.exceptions import ConfigEntryNotReady
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "hp_ilo"
-
-# Hier voegen we de platforms toe die we ondersteunen
 PLATFORMS = [Platform.SENSOR, Platform.BUTTON]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up entities of all platforms from a config entry."""
     
-    # We slaan de entry data op zodat andere platforms erbij kunnen
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = entry
 
-    # Test de verbinding kort om te zien of iLO bereikbaar is
+    # Verbinding testen bij opstarten
     try:
-        ilo_test = await hass.async_add_executor_job(
+        await hass.async_add_executor_job(
             lambda: hpilo.Ilo(
                 hostname=entry.data[CONF_HOST],
                 login=entry.data[CONF_USERNAME],
@@ -39,13 +36,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
         )
     except Exception as err:
-        raise ConfigEntryNotReady(f"Kan geen verbinding maken met iLO: {err}")
+        raise ConfigEntryNotReady(f"iLO niet bereikbaar: {err}")
 
-    # --- Service Registratie ---
+    # --- Service Handler ---
     
     async def handle_power_action(call: ServiceCall):
         """Voer een power actie uit."""
-        # Haal de client op voor elke call (om sessie-timeouts te voorkomen)
         ilo = hpilo.Ilo(
             hostname=entry.data[CONF_HOST],
             login=entry.data[CONF_USERNAME],
@@ -64,39 +60,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.info("iLO: Graceful shutdown verzonden naar %s", entry.data[CONF_HOST])
             
             elif action == "shutdown_hard":
-                await hass.async_add_executor_job(ilo.set_host_power, False)
-                _LOGGER.warning("iLO: Harde shutdown uitgevoerd op %s", entry.data[CONF_HOST])
+                # GEFIXT: Gebruik hold=True voor press & hold (harde shutdown)
+                await hass.async_add_executor_job(lambda: ilo.press_pwr_button(hold=True))
+                _LOGGER.warning("iLO: HARD shutdown (Press & Hold) uitgevoerd op %s", entry.data[CONF_HOST])
             
             elif action == "power_on":
                 await hass.async_add_executor_job(ilo.set_host_power, True)
                 _LOGGER.info("iLO: Server ingeschakeld op %s", entry.data[CONF_HOST])
 
         except Exception as err:
-            _LOGGER.error("Fout tijdens uitvoeren van %s op iLO %s: %s", action, entry.data[CONF_HOST], err)
+            _LOGGER.error("Fout tijdens iLO actie %s op %s: %s", action, entry.data[CONF_HOST], err)
 
-    # Registreer de services onder het domein 'hp_ilo'
+    # Services registreren
     hass.services.async_register(DOMAIN, "reboot_server", handle_power_action)
     hass.services.async_register(DOMAIN, "shutdown_graceful", handle_power_action)
     hass.services.async_register(DOMAIN, "shutdown_hard", handle_power_action)
     hass.services.async_register(DOMAIN, "power_on", handle_power_action)
 
-    # Laad de platforms (sensor.py en button.py)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry en ruim services op."""
+    """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
-        
-        # Als dit de laatste iLO was, verwijder dan de services volledig
         if not hass.data[DOMAIN]:
-            hass.services.async_remove(DOMAIN, "reboot_server")
-            hass.services.async_remove(DOMAIN, "shutdown_graceful")
-            hass.services.async_remove(DOMAIN, "shutdown_hard")
-            hass.services.async_remove(DOMAIN, "power_on")
-
+            for service in ["reboot_server", "shutdown_graceful", "shutdown_hard", "power_on"]:
+                hass.services.async_remove(DOMAIN, service)
     return unload_ok
