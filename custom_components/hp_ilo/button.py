@@ -31,12 +31,12 @@ async def async_setup_entry(
     async_add_entities([
         IloPowerButton(entry, device_info, "Power On", "power_on", "mdi:power-on"),
         IloPowerButton(entry, device_info, "Reboot (Warm)", "warm_boot", "mdi:restart"),
-        IloPowerButton(entry, device_info, "Shutdown (Graceful)", "press_power_button", "mdi:power"),
+        IloPowerButton(entry, device_info, "Shutdown (Graceful)", "press_pwr_button", "mdi:power"),
         IloPowerButton(entry, device_info, "Shutdown (Hard - Press & Hold)", "hard_shutdown", "mdi:power-off"),
     ])
 
 class IloPowerButton(ButtonEntity):
-    """Representatie van een iLO power actie knop."""
+    """Representation of an iLO power action button."""
 
     def __init__(self, entry, device_info, name, action_type, icon):
         self._entry = entry
@@ -47,7 +47,6 @@ class IloPowerButton(ButtonEntity):
         self._attr_icon = icon
 
     def _get_ilo_client(self):
-        """Maak een nieuwe iLO client aan."""
         return hpilo.Ilo(
             hostname=self._entry.data[CONF_HOST],
             login=self._entry.data[CONF_USERNAME],
@@ -56,7 +55,7 @@ class IloPowerButton(ButtonEntity):
         )
 
     async def async_press(self) -> None:
-        """Voer de actie uit wanneer op de knop wordt gedrukt."""
+        """Handle the button press."""
         ilo = await self.hass.async_add_executor_job(self._get_ilo_client)
         
         try:
@@ -64,12 +63,12 @@ class IloPowerButton(ButtonEntity):
                 await self.hass.async_add_executor_job(ilo.set_host_power, True)
             elif self._action_type == "warm_boot":
                 await self.hass.async_add_executor_job(ilo.warm_boot)
-            elif self._action_type == "press_power_button":
-                # GEFIXT: Naam aangepast naar press_power_button
-                await self.hass.async_add_executor_job(ilo.press_power_button)
+            elif self._action_type == "press_pwr_button":
+                # GEFIXT: Gebruik press_pwr_button (de correcte library naam)
+                await self.hass.async_add_executor_job(ilo.press_pwr_button)
             elif self._action_type == "hard_shutdown":
-                # GEFIXT: Naam aangepast en hold=True toegevoegd
-                await self.hass.async_add_executor_job(lambda: ilo.press_power_button(hold=True))
+                # GEFIXT: Gebruik press_pwr_button met hold=True
+                await self.hass.async_add_executor_job(lambda: ilo.press_pwr_button(hold=True))
         except Exception as err:
             from homeassistant.exceptions import HomeAssistantError
-            raise HomeAssistantError(f"iLO Actie mislukt: {err}")
+            raise HomeAssistantError(f"iLO Action failed: {err}")
