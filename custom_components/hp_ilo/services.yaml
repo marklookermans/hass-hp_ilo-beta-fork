@@ -1,0 +1,21 @@
+reboot_server:
+  description: "Herstart de server via iLO"
+  fields:
+    entry_id:
+      description: "De config entry ID van de iLO (te vinden in de URL van de integratie)"
+      required: true
+      selector:
+        text:
+
+shutdown_server:
+  description: "Zet de server uit (Graceful of Hard)"
+  fields:
+    entry_id:
+      required: true
+      selector:
+        text:
+    force:
+      description: "Indien aan, voert een harde shutdown uit (pwr_button). Indien uit, een graceful shutdown."
+      default: false
+      selector:
+        boolean:
