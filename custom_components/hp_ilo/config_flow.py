@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlparse  # Toegevoegd voor SSDP support
 
 import voluptuous as vol
 from redfish import redfish_client, AuthMethod
@@ -18,7 +19,7 @@ from homeassistant.const import (
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.service_info.ssdp import SsdpServiceInfo
 
-from .const import DOMAIN, DEFAULT_PORT  # DEFAULT_PORT = 443 in const.py
+from .const import DOMAIN, DEFAULT_PORT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,10 +33,10 @@ class RedfishIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self.config: dict = {}
 
     # ---------------------------------------------------------------------
-    # SSDP DISCOVERY (optioneel)
+    # SSDP DISCOVERY
     # ---------------------------------------------------------------------
     async def async_step_ssdp(self, discovery_info: SsdpServiceInfo) -> FlowResult:
-        """Probeer Redfish te detecteren via SSDP (indien aanwezig)."""
+        """Probeer Redfish te detecteren via SSDP."""
         if not discovery_info.ssdp_server or "redfish" not in discovery_info.ssdp_server.lower():
             return self.async_abort(reason="not_redfish_supported")
 
@@ -50,7 +51,7 @@ class RedfishIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         }
 
         self.context["configuration_url"] = f"https://{host}:{port}"
-        await self.async_set_unique_id(f"redfish_ilo_{host}_{port}")
+        await self.async_set_unique_id(f"redfish_ilo_{host}")
         self._abort_if_unique_id_configured(updates=self.config)
 
         return await self.async_step_user()
@@ -68,7 +69,7 @@ class RedfishIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_PORT: int(user_input[CONF_PORT]),
                 CONF_USERNAME: user_input[CONF_USERNAME],
                 CONF_PASSWORD: user_input[CONF_PASSWORD],
-                CONF_NAME: user_input.get(CONF_NAME, f"iLO Redfish @ {user_input[CONF_HOST]}"),
+                CONF_NAME: user_input.get(CONF_NAME) or f"iLO Redfish @ {user_input[CONF_HOST]}",
             }
             return await self.async_step_auth()
 
@@ -76,13 +77,13 @@ class RedfishIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_HOST): str,
-                    vol.Required(CONF_PORT, default=DEFAULT_PORT): vol.All(
+                    vol.Required(CONF_HOST, default=self.config.get(CONF_HOST, "")): str,
+                    vol.Required(CONF_PORT, default=self.config.get(CONF_PORT, DEFAULT_PORT)): vol.All(
                         vol.Coerce(int), vol.Range(min=1, max=65535)
                     ),
                     vol.Required(CONF_USERNAME, default="Administrator"): str,
                     vol.Required(CONF_PASSWORD): str,
-                    vol.Optional(CONF_NAME): str,
+                    vol.Optional(CONF_NAME, default=self.config.get(CONF_NAME, "")): str,
                 }
             ),
             errors=errors,
@@ -92,44 +93,37 @@ class RedfishIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     # AUTHENTICATIE & TEST CONNECTIE
     # ---------------------------------------------------------------------
     async def async_step_auth(self, user_input=None) -> FlowResult:
-        """Probeer in te loggen en een test call uit te voeren."""
+        """Probeer in te loggen en een test call uit te voeren naar de API Root."""
         errors = {}
 
         try:
             base_url = f"https://{self.config[CONF_HOST]}:{self.config[CONF_PORT]}"
 
-            # Client aanmaken (blocking) via lambda in executor
-            redfish_obj = await self.hass.async_add_executor_job(
-                lambda: redfish_client(
+            def _test_connection():
+                redfish_obj = redfish_client(
                     base_url=base_url,
                     username=self.config[CONF_USERNAME],
                     password=self.config[CONF_PASSWORD],
                     default_prefix="/redfish/v1/",
+                    timeout=10
                 )
-            )
+                redfish_obj.login(auth=AuthMethod.SESSION)
+                
+                # TEST: We vragen de Root aan (/) in plaats van /Systems/1/
+                # Dit voorkomt de 404 als de systeem-ID anders is dan "1"
+                response = redfish_obj.get("/redfish/v1/")
+                
+                # Uitloggen om sessie-vervuiling op de iLO te voorkomen
+                redfish_obj.logout()
+                return response
 
-            # Login uitvoeren via executor
-            await self.hass.async_add_executor_job(
-                lambda: redfish_obj.login(auth=AuthMethod.SESSION)
-            )
-
-            # Test call: system info ophalen
-            response = await self.hass.async_add_executor_job(
-                lambda: redfish_obj.get("/Systems/1/")
-            )
+            response = await self.hass.async_add_executor_job(_test_connection)
 
             if response.status != 200:
                 raise Exception(f"Redfish request mislukt: status {response.status}")
 
-            # Log succes
-            _LOGGER.info(
-                "Redfish verbinding succesvol voor %s - Model: %s",
-                self.config[CONF_HOST],
-                response.dict.get("Model", "Onbekend")
-            )
-
-            # Unique ID
-            unique_id = f"redfish_ilo_{self.config[CONF_HOST]}_{self.config[CONF_PORT]}"
+            # Unique ID instellen
+            unique_id = f"redfish_ilo_{self.config[CONF_HOST]}"
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured(updates=self.config)
 
@@ -142,16 +136,21 @@ class RedfishIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             err_str = str(err).lower()
             _LOGGER.error("Redfish fout tijdens setup: %s", err)
 
-            if "timeout" in err_str or "connection" in err_str or "refused" in err_str:
+            if "timeout" in err_str or "connection" in err_str:
                 errors["base"] = "cannot_connect"
-            elif "401" in err_str or "unauthorized" in err_str or "login failed" in err_str:
+            elif "401" in err_str or "unauthorized" in err_str:
                 errors["base"] = "invalid_auth"
             else:
                 errors["base"] = "unknown"
 
+        # Bij een fout gaan we terug naar het gebruikersscherm om gegevens te corrigeren
         return self.async_show_form(
-            step_id="auth",
-            data_schema=vol.Schema({}),
-            description_placeholders={"host": self.config.get(CONF_HOST, "onbekend")},
+            step_id="user",
+            data_schema=vol.Schema({
+                vol.Required(CONF_HOST, default=self.config[CONF_HOST]): str,
+                vol.Required(CONF_PORT, default=self.config[CONF_PORT]): int,
+                vol.Required(CONF_USERNAME, default=self.config[CONF_USERNAME]): str,
+                vol.Required(CONF_PASSWORD): str,
+            }),
             errors=errors,
         )
