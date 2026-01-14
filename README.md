@@ -61,7 +61,7 @@ The integration provides physical buttons on the device page for immediate actio
 * **Power On:** Starts the server.
 * **Reboot (Warm):** Triggers a warm restart (Soft Reset).
 * **Shutdown (Graceful):** Signals the OS to shut down cleanly.
-* **Shutdown (Hard): **Press & Hold** action (simulates 4s button press) using not working yet `press_pwr_button(hold=True)`.
+* **Shutdown (Hard):** **Press & Hold** action (simulates 4s button press) using not working yet `press_pwr_button(hold=True)`.
 
 ---
 
@@ -85,4 +85,5 @@ Use these services in your automations or scripts:
 
 ## Credits
 Forked and improved from [chkuendig/hass-hp_ilo-beta](https://github.com/chkuendig/hass-hp_ilo-beta). Originally based on the Home Assistant core component.
+
 
