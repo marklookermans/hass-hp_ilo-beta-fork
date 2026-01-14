@@ -29,12 +29,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle an HP iLO config flow."""
+    """Handle the HP iLO config flow."""
 
     VERSION = 1
 
     def __init__(self) -> None:
-        self.config: dict | None = None
+        self.config: dict = {}
 
     # ---------------------------------------------------------------------
     # SSDP DISCOVERY
@@ -43,8 +43,6 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self, discovery_info: SsdpServiceInfo
     ) -> FlowResult:
         """Handle SSDP discovery."""
-
-        _LOGGER.debug("SSDP discovery info: %s", discovery_info)
 
         if not discovery_info.ssdp_server or not discovery_info.ssdp_server.startswith(
             "HP-iLO"
@@ -56,7 +54,7 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self.config = {
             CONF_HOST: parsed_url.hostname,
             CONF_PORT: parsed_url.port or DEFAULT_PORT,
-            CONF_PROTOCOL: parsed_url.scheme,
+            CONF_PROTOCOL: parsed_url.scheme or "http",
             CONF_NAME: discovery_info.upnp.get(
                 ssdp.ATTR_UPNP_FRIENDLY_NAME, "HP iLO"
             ),
@@ -73,15 +71,10 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(self.config[CONF_UNIQUE_ID])
         self._abort_if_unique_id_configured(updates=self.config)
 
-        self.context["title_placeholders"] = {
-            CONF_NAME: self.config[CONF_NAME],
-            CONF_HOST: self.config[CONF_HOST],
-        }
-
         return await self.async_step_confirm()
 
     # ---------------------------------------------------------------------
-    # USER FLOW
+    # MANUAL USER SETUP
     # ---------------------------------------------------------------------
     async def async_step_user(self, user_input=None) -> FlowResult:
         """Handle manual setup."""
@@ -101,7 +94,9 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(CONF_HOST): str,
                     vol.Required(CONF_PORT, default=DEFAULT_PORT): int,
-                    vol.Required(CONF_PROTOCOL, default="http"): str,
+                    vol.Required(CONF_PROTOCOL, default="http"): vol.In(
+                        ["http", "https"]
+                    ),
                 }
             ),
         )
@@ -110,7 +105,7 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     # CONFIRMATION
     # ---------------------------------------------------------------------
     async def async_step_confirm(self, user_input=None) -> FlowResult:
-        """Confirm discovered or entered device."""
+        """Confirm the discovered or manually entered device."""
 
         if user_input is not None:
             return await self.async_step_auth()
@@ -118,8 +113,8 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="confirm",
             description_placeholders={
-                CONF_NAME: self.config[CONF_NAME],
-                CONF_HOST: self.config[CONF_HOST],
+                CONF_HOST: self.config.get(CONF_HOST),
+                CONF_NAME: self.config.get(CONF_NAME),
             },
         )
 
@@ -127,16 +122,22 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     # AUTHENTICATION
     # ---------------------------------------------------------------------
     async def async_step_auth(self, user_input=None) -> FlowResult:
-        """Authenticate against the iLO device."""
+        """Authenticate against the HP iLO device."""
 
         errors = {}
 
         if user_input is not None:
+            use_https = self.config.get(CONF_PROTOCOL) == "https"
+            port = int(self.config.get(CONF_PORT, DEFAULT_PORT))
+
             try:
                 ilo = hpilo.Ilo(
                     hostname=self.config[CONF_HOST],
                     login=user_input[CONF_USERNAME],
                     password=user_input[CONF_PASSWORD],
+                    port=port,
+                    ssl=use_https,
+                    timeout=10,
                 )
 
                 # Validate connection (blocking → executor)
@@ -150,13 +151,14 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     data=self.config,
                 )
 
-            except (
-                hpilo.IloError,
-                hpilo.IloCommunicationError,
-                hpilo.IloLoginFailed,
-            ) as err:
-                _LOGGER.error("HP iLO authentication failed: %s", err)
+            except hpilo.IloLoginFailed:
+                errors["base"] = "invalid_auth"
+            except hpilo.IloCommunicationError as err:
+                _LOGGER.error("HP iLO communication error: %s", err)
                 errors["base"] = "cannot_connect"
+            except hpilo.IloError as err:
+                _LOGGER.error("HP iLO error: %s", err)
+                errors["base"] = "unknown"
 
         return self.async_show_form(
             step_id="auth",
@@ -173,6 +175,6 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     # YAML IMPORT
     # ---------------------------------------------------------------------
     async def async_step_import(self, import_info) -> FlowResult:
-        """Import from configuration.yaml."""
+        """Import configuration from configuration.yaml."""
         self._async_abort_entries_match({CONF_HOST: import_info[CONF_HOST]})
         return await self.async_step_user(import_info)
