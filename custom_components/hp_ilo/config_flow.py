@@ -82,7 +82,7 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self.config = {
                 CONF_HOST: user_input[CONF_HOST],
-                CONF_PORT: user_input[CONF_PORT],
+                CONF_PORT: int(user_input[CONF_PORT]),
                 CONF_PROTOCOL: user_input[CONF_PROTOCOL],
                 CONF_NAME: user_input[CONF_HOST].upper(),
             }
@@ -127,7 +127,6 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            use_https = self.config.get(CONF_PROTOCOL) == "https"
             port = int(self.config.get(CONF_PORT, DEFAULT_PORT))
 
             try:
@@ -136,11 +135,10 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     login=user_input[CONF_USERNAME],
                     password=user_input[CONF_PASSWORD],
                     port=port,
-                    ssl=use_https,
                     timeout=10,
                 )
 
-                # Validate connection (blocking → executor)
+                # Blocking call → executor
                 await self.hass.async_add_executor_job(ilo.get_host_data)
 
                 self.config[CONF_USERNAME] = user_input[CONF_USERNAME]
