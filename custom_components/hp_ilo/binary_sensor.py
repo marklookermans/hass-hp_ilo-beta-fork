@@ -11,7 +11,8 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .sensor import IloDataUpdateCoordinator
+# GEFIXT: We importeren de coordinator nu niet meer uit sensor.py
+# omdat hij in __init__.py staat.
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -20,9 +21,8 @@ async def async_setup_entry(
 ) -> None:
     """Set up the iLO binary sensors."""
     
-    # We gebruiken dezelfde coordinator als de sensoren
-    # Zo belasten we de iLO niet extra
-    coordinator = hass.data[DOMAIN][entry.entry_id + "_coordinator"]
+    # Haal de coordinator op uit de centrale opslag (gezet in __init__.py)
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     
     device_info = DeviceInfo(
         identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
@@ -35,7 +35,7 @@ async def async_setup_entry(
     ])
 
 class HpIloHealthBinarySensor(BinarySensorEntity):
-    """Representatie van de globale iLO Health status."""
+    """Representation of the global iLO Health status."""
 
     def __init__(self, coordinator, device_info):
         self.coordinator = coordinator
@@ -46,18 +46,17 @@ class HpIloHealthBinarySensor(BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
-        """Return true als er een probleem is (status niet OK of Healthy)."""
+        """Return true if there is a problem (status is not OK)."""
         data = self.coordinator.data
-        if not data or "health_summary" not in data:
+        if not data:
             return False
             
-        status = data["health_summary"].upper()
-        # De sensor is 'ON' (Problem) als de status NIET OK of HEALTHY is
+        status = data.get("health_summary", "OK").upper()
         return status not in ["OK", "HEALTHY"]
 
     @property
     def extra_state_attributes(self):
-        """Voeg de ruwe status toe als attribuut."""
+        """Add raw status as attribute."""
         return {
             "status": self.coordinator.data.get("health_summary", "Unknown")
         }
