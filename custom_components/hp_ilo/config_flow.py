@@ -1,233 +1,105 @@
-"""Config flow for HP iLO devices."""
+"""Config flow voor HP iLO via Redfish."""
 from __future__ import annotations
 
 import logging
 from urllib.parse import urlparse
 
 import voluptuous as vol
-import hpilo
-import http.client  # Nodig voor de monkey patch
+from redfish import redfish_client, AuthMethod
 
 from homeassistant import config_entries
-from homeassistant.components import ssdp
 from homeassistant.const import (
     CONF_HOST,
-    CONF_NAME,
     CONF_PORT,
-    CONF_PROTOCOL,
     CONF_USERNAME,
     CONF_PASSWORD,
-    CONF_UNIQUE_ID,
+    CONF_NAME,
 )
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers.service_info.ssdp import SsdpServiceInfo
 
-from .const import DOMAIN, DEFAULT_PORT  # DEFAULT_PORT = 443 in const.py
+from .const import DOMAIN, DEFAULT_PORT  # DEFAULT_PORT = 443
 
 _LOGGER = logging.getLogger(__name__)
 
-
-class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle the HP iLO config flow."""
+class RedfishIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
+    """Redfish-based config flow for HP iLO."""
 
     VERSION = 1
 
     def __init__(self) -> None:
-        """Initialize the flow."""
-        self.config: dict = {}
+        self.config = {}
 
-    # ---------------------------------------------------------------------
-    # SSDP DISCOVERY
-    # ---------------------------------------------------------------------
-    async def async_step_ssdp(self, discovery_info: SsdpServiceInfo) -> FlowResult:
-        """Handle SSDP discovery."""
-        if not discovery_info.ssdp_server or not discovery_info.ssdp_server.startswith("HP-iLO"):
-            return self.async_abort(reason="not_hp_ilo")
-
-        parsed_url = urlparse(discovery_info.ssdp_location)
-        host = parsed_url.hostname
-        port = parsed_url.port or DEFAULT_PORT
-        protocol = parsed_url.scheme or "https"
-
-        self.config = {
-            CONF_HOST: host,
-            CONF_PORT: port,
-            CONF_PROTOCOL: protocol,
-            CONF_NAME: f"HP iLO @ {host}",
-            CONF_UNIQUE_ID: discovery_info.ssdp_udn or f"hp_ilo_{host}_{port}",
-        }
-
-        self.context["configuration_url"] = f"{protocol}://{host}:{port}"
-
-        await self.async_set_unique_id(self.config[CONF_UNIQUE_ID])
-        self._abort_if_unique_id_configured(updates=self.config)
-
-        return await self.async_step_confirm()
-
-    # ---------------------------------------------------------------------
-    # MANUAL USER SETUP
-    # ---------------------------------------------------------------------
     async def async_step_user(self, user_input=None) -> FlowResult:
-        """Handle manual setup."""
         errors = {}
-
         if user_input is not None:
             self.config = {
                 CONF_HOST: user_input[CONF_HOST],
                 CONF_PORT: int(user_input[CONF_PORT]),
-                CONF_PROTOCOL: user_input[CONF_PROTOCOL],
-                CONF_NAME: f"HP iLO @ {user_input[CONF_HOST]}",
+                CONF_USERNAME: user_input[CONF_USERNAME],
+                CONF_PASSWORD: user_input[CONF_PASSWORD],
+                CONF_NAME: f"iLO Redfish @ {user_input[CONF_HOST]}",
             }
             return await self.async_step_confirm()
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_HOST): str,
-                    vol.Required(CONF_PORT, default=DEFAULT_PORT): vol.All(
-                        vol.Coerce(int), vol.Range(min=1, max=65535)
-                    ),
-                    vol.Required(CONF_PROTOCOL, default="https"): vol.In(["http", "https"]),
-                }
-            ),
+            data_schema=vol.Schema({
+                vol.Required(CONF_HOST): str,
+                vol.Required(CONF_PORT, default=DEFAULT_PORT): int,
+                vol.Required(CONF_USERNAME, default="Administrator"): str,
+                vol.Required(CONF_PASSWORD): str,
+            }),
             errors=errors,
         )
 
-    # ---------------------------------------------------------------------
-    # CONFIRMATION + NAME OVERRIDE
-    # ---------------------------------------------------------------------
     async def async_step_confirm(self, user_input=None) -> FlowResult:
-        """Confirm device and allow name override."""
         if user_input is not None:
-            self.config[CONF_NAME] = user_input[CONF_NAME].strip()
             return await self.async_step_auth()
-
-        default_name = self.config.get(CONF_NAME, "HP iLO")
 
         return self.async_show_form(
             step_id="confirm",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_NAME, default=default_name): str,
-                }
-            ),
-            description_placeholders={
-                "host": self.config.get(CONF_HOST),
-                "name": self.config.get(CONF_NAME),
-            },
+            description_placeholders={"host": self.config[CONF_HOST]},
         )
 
-    # ---------------------------------------------------------------------
-    # AUTHENTICATION
-    # ---------------------------------------------------------------------
     async def async_step_auth(self, user_input=None) -> FlowResult:
-        """Authenticate against the HP iLO device."""
         errors = {}
+        if user_input is not None:  # Extra auth als nodig, maar meestal in user
+            pass
 
-        if user_input is not None:
-            port = int(self.config.get(CONF_PORT, DEFAULT_PORT))
-            protocol = self.config.get(CONF_PROTOCOL, "https")
+        try:
+            base_url = f"https://{self.config[CONF_HOST]}:{self.config[CONF_PORT]}"
+            redfish_obj = await self.hass.async_add_executor_job(
+                redfish_client,
+                base_url=base_url,
+                username=self.config[CONF_USERNAME],
+                password=self.config[CONF_PASSWORD],
+                default_prefix="/redfish/v1/",
+            )
+            await self.hass.async_add_executor_job(redfish_obj.login, auth=AuthMethod.SESSION)
 
-            # === MONKEY PATCH: Voeg browser User-Agent toe ===
-            original_http = http.client.HTTPConnection
-            class PatchedHTTP(original_http):
-                def request(self, method, url, body=None, headers=None, *, encode_chunked=False):
-                    headers = headers or {}
-                    headers.setdefault('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-                    return super().request(method, url, body, headers, encode_chunked=encode_chunked)
+            # Test call
+            response = await self.hass.async_add_executor_job(
+                redfish_obj.get, "/Systems/1/"
+            )
+            if response.status != 200:
+                raise Exception("Redfish test failed")
 
-            original_https = http.client.HTTPSConnection
-            class PatchedHTTPS(original_https):
-                def request(self, method, url, body=None, headers=None, *, encode_chunked=False):
-                    headers = headers or {}
-                    headers.setdefault('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-                    return super().request(method, url, body, headers, encode_chunked=encode_chunked)
+            # Succes
+            unique_id = f"redfish_ilo_{self.config[CONF_HOST]}"
+            await self.async_set_unique_id(unique_id)
+            self._abort_if_unique_id_configured()
 
-            http.client.HTTPConnection = PatchedHTTP
-            http.client.HTTPSConnection = PatchedHTTPS
+            return self.async_create_entry(
+                title=self.config[CONF_NAME],
+                data=self.config,
+            )
 
-            _LOGGER.debug("User-Agent monkey patch toegepast voor iLO verbinding")
-
-            ilo = None
-
-            try:
-                ilo = hpilo.Ilo(
-                    hostname=self.config[CONF_HOST],
-                    login=user_input[CONF_USERNAME],
-                    password=user_input[CONF_PASSWORD],
-                    port=port,
-                    protocol=protocol,
-                    timeout=120,
-                    ssl_verify=False,
-                )
-
-                _LOGGER.debug(
-                    "Verbinding testen met %s://%s:%s (User-Agent gepatcht)",
-                    protocol,
-                    self.config[CONF_HOST],
-                    port,
-                )
-
-                host_data = await self.hass.async_add_executor_job(ilo.get_host_data)
-
-                serial = (
-                    host_data.get("serial_number")
-                    or host_data.get("SerialNumber")
-                    or host_data.get("host", {}).get("serial_number")
-                )
-
-                unique_id = f"hp_ilo_{serial}" if serial else f"hp_ilo_{self.config[CONF_HOST]}_{port}"
-
-                await self.async_set_unique_id(unique_id)
-                self._abort_if_unique_id_configured(updates=self.config)
-
-                self.config[CONF_USERNAME] = user_input[CONF_USERNAME]
-                self.config[CONF_PASSWORD] = user_input[CONF_PASSWORD]
-
-                return self.async_create_entry(
-                    title=self.config[CONF_NAME],
-                    data=self.config,
-                )
-
-            except hpilo.IloLoginFailed:
-                errors["base"] = "invalid_auth"
-            except hpilo.IloCommunicationError as err:
-                _LOGGER.error("iLO communication error: %s", err)
-                errors["base"] = "cannot_connect"
-            except hpilo.IloError as err:
-                _LOGGER.error("iLO error: %s", err)
-                errors["base"] = "unknown"
-            except Exception as err:
-                _LOGGER.exception("Unexpected error during iLO authentication")
-                errors["base"] = "unknown"
-            finally:
-                if ilo is not None:
-                    try:
-                        await self.hass.async_add_executor_job(ilo._close)
-                    except Exception:
-                        pass
-
-                # Optioneel: patch terugzetten (niet strikt nodig in HA-context)
-                http.client.HTTPConnection = original_http
-                http.client.HTTPSConnection = original_https
+        except Exception as err:
+            _LOGGER.error("Redfish connectie fout: %s", err)
+            errors["base"] = "cannot_connect"
 
         return self.async_show_form(
             step_id="auth",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_USERNAME, default="Administrator"): str,
-                    vol.Required(CONF_PASSWORD): str,
-                }
-            ),
+            data_schema=vol.Schema({}),  # Kan leeg als auth al in user zit
             errors=errors,
         )
-
-    # ---------------------------------------------------------------------
-    # YAML IMPORT
-    # ---------------------------------------------------------------------
-    async def async_step_import(self, import_info) -> FlowResult:
-        """Import configuration from configuration.yaml."""
-        self._async_abort_entries_match({CONF_HOST: import_info[CONF_HOST]})
-        self.config = import_info.copy()
-        return await self.async_step_auth()
