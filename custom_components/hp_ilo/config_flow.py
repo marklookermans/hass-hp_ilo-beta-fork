@@ -133,10 +133,18 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                     login=user_input[CONF_USERNAME],
                     password=user_input[CONF_PASSWORD],
                     port=port,
-                    protocol=protocol,
-                    timeout=20,
-                    ssl_verify=False,           # Meest kritieke fix – self-signed certs
+                    protocol=self.config[CONF_PROTOCOL],
+                    timeout=120,  # ↑ Nog hoger, geef iLO meer tijd om te reageren
+                    ssl_verify=False,
                 )
+
+# Voeg dit toe direct na de call om de verbinding expliciet te sluiten
+try:
+    host_data = await self.hass.async_add_executor_job(ilo.get_host_data)
+    # Succes: data opgehaald
+finally:
+    # Forceer close om idle timeouts te voorkomen
+    await self.hass.async_add_executor_job(ilo._close)  # Of ilo.close() als beschikbaar
 
                 # Test verbinding (blocking → executor)
                 host_data = await self.hass.async_add_executor_job(ilo.get_host_data)
