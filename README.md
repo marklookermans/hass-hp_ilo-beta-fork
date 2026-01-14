@@ -59,3 +59,6 @@ The integration provides physical buttons on the device page for immediate actio
 * **Reboot (Warm):** Triggers a warm restart (Soft Reset).
 * **Shutdown (Graceful):** Signals the OS to shut down cleanly.
 * **Shutdown (Hard):**
+
+### ⚡ Credits
+Forked and improved from chkuendig/hass-hp_ilo-beta. Originally based on the Home Assistant core component.
