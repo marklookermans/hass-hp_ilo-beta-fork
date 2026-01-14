@@ -35,8 +35,8 @@ from .const import DOMAIN, DEFAULT_PORT
 
 _LOGGER = logging.getLogger(__name__)
 
-# Hoe vaak we de iLO pollen (iLO's zijn traag, dus 300s is veilig)
-SCAN_INTERVAL = timedelta(seconds=300)
+# AANGEPAST: Interval nu op 30 seconden
+SCAN_INTERVAL = timedelta(seconds=30)
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -45,13 +45,11 @@ async def async_setup_entry(
 ) -> None:
     """Set up the HP iLO sensors vanuit een config entry."""
     
-    # Coordinator initialiseren
     coordinator = IloDataUpdateCoordinator(hass, entry)
     
-    # Eerste keer data ophalen
+    # Eerste refresh bij opstarten
     await coordinator.async_config_entry_first_refresh()
 
-    # Device info voor groepering in de UI
     device_info = DeviceInfo(
         identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
         name=entry.data.get(CONF_NAME, "HP iLO"),
@@ -62,22 +60,22 @@ async def async_setup_entry(
     sensors: list[SensorEntity] = []
     data = coordinator.data
 
-    # 1. Voeg Temperatuur Sensoren toe
+    # 1. Temperatuur
     if "temperature" in data:
         for label, sensor_info in data["temperature"].items():
             if sensor_info.get("status") != "Not Installed":
                 sensors.append(HpIloTemperatureSensor(coordinator, label, device_info))
 
-    # 2. Voeg Fan Sensoren toe
+    # 2. Fans
     if "fans" in data:
         for label, fan_info in data["fans"].items():
             sensors.append(HpIloFanSensor(coordinator, label, device_info))
 
-    # 3. Voeg Power Status toe
+    # 3. Power Status
     if "power_status" in data:
         sensors.append(HpIloPowerSensor(coordinator, device_info))
 
-    # 4. Voeg Power On Time toe
+    # 4. Power On Time
     if "power_on_time" in data:
         sensors.append(HpIloPowerOnTimeSensor(coordinator, device_info))
 
@@ -85,7 +83,7 @@ async def async_setup_entry(
 
 
 class IloDataUpdateCoordinator(DataUpdateCoordinator):
-    """Centrale klasse om iLO data te verzamelen."""
+    """Centrale klasse om iLO data elke 30 seconden te verzamelen."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(
@@ -97,7 +95,7 @@ class IloDataUpdateCoordinator(DataUpdateCoordinator):
         self.entry = entry
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Haal alle benodigde data op in één executor call."""
+        """Haal alle data op in één call."""
         return await self.hass.async_add_executor_job(self._get_ilo_data)
 
     def _get_ilo_data(self) -> dict[str, Any]:
@@ -110,7 +108,6 @@ class IloDataUpdateCoordinator(DataUpdateCoordinator):
                 port=self.entry.data.get(CONF_PORT, DEFAULT_PORT),
             )
             
-            # Bundel alle calls die we nodig hebben
             health = ilo.get_embedded_health()
             
             return {
@@ -120,20 +117,18 @@ class IloDataUpdateCoordinator(DataUpdateCoordinator):
                 "power_on_time": ilo.get_server_power_on_time(),
             }
         except Exception as err:
-            raise UpdateFailed(f"Fout bij communicatie met iLO: {err}") from err
+            raise UpdateFailed(f"iLO onbereikbaar: {err}") from err
 
 
 class HpIloBaseSensor(CoordinatorEntity, SensorEntity):
-    """Basis voor alle iLO sensoren."""
-
+    """Basis voor iLO sensoren."""
     def __init__(self, coordinator: IloDataUpdateCoordinator, device_info: DeviceInfo):
         super().__init__(coordinator)
         self._attr_device_info = device_info
 
 
 class HpIloTemperatureSensor(HpIloBaseSensor):
-    """Temperatuur sensor per onderdeel."""
-
+    """Temperatuur sensor."""
     def __init__(self, coordinator, label, device_info):
         super().__init__(coordinator, device_info)
         self._label = label
@@ -153,8 +148,7 @@ class HpIloTemperatureSensor(HpIloBaseSensor):
 
 
 class HpIloFanSensor(HpIloBaseSensor):
-    """Fan snelheid in percentage."""
-
+    """Fan snelheid."""
     def __init__(self, coordinator, label, device_info):
         super().__init__(coordinator, device_info)
         self._label = label
@@ -174,8 +168,7 @@ class HpIloFanSensor(HpIloBaseSensor):
 
 
 class HpIloPowerSensor(HpIloBaseSensor):
-    """Server Power Status (ON/OFF)."""
-
+    """Power Status."""
     def __init__(self, coordinator, device_info):
         super().__init__(coordinator, device_info)
         self._attr_name = f"{device_info['name']} Power Status"
@@ -185,12 +178,12 @@ class HpIloPowerSensor(HpIloBaseSensor):
 
     @property
     def native_value(self) -> str:
-        return self.coordinator.data.get("power_status", "UNKNOWN").upper()
+        status = self.coordinator.data.get("power_status", "UNKNOWN")
+        return status.upper() if status else "UNKNOWN"
 
 
 class HpIloPowerOnTimeSensor(HpIloBaseSensor):
-    """Hoe lang de server al aan staat."""
-
+    """Power On Time."""
     def __init__(self, coordinator, device_info):
         super().__init__(coordinator, device_info)
         self._attr_name = f"{device_info['name']} Power On Time"
