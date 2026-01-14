@@ -1,0 +1,2 @@
+DOMAIN = "hp_ilo"
+DEFAULT_PORT = 443
