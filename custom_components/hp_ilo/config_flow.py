@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 import voluptuous as vol
 import hpilo
+import http.client  # Nodig voor de monkey patch
 
 from homeassistant import config_entries
 from homeassistant.components import ssdp
@@ -128,6 +129,26 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             port = int(self.config.get(CONF_PORT, DEFAULT_PORT))
             protocol = self.config.get(CONF_PROTOCOL, "https")
 
+            # === MONKEY PATCH: Voeg browser User-Agent toe ===
+            original_http = http.client.HTTPConnection
+            class PatchedHTTP(original_http):
+                def request(self, method, url, body=None, headers=None, *, encode_chunked=False):
+                    headers = headers or {}
+                    headers.setdefault('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+                    return super().request(method, url, body, headers, encode_chunked=encode_chunked)
+
+            original_https = http.client.HTTPSConnection
+            class PatchedHTTPS(original_https):
+                def request(self, method, url, body=None, headers=None, *, encode_chunked=False):
+                    headers = headers or {}
+                    headers.setdefault('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+                    return super().request(method, url, body, headers, encode_chunked=encode_chunked)
+
+            http.client.HTTPConnection = PatchedHTTP
+            http.client.HTTPSConnection = PatchedHTTPS
+
+            _LOGGER.debug("User-Agent monkey patch toegepast voor iLO verbinding")
+
             ilo = None
 
             try:
@@ -142,7 +163,7 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 )
 
                 _LOGGER.debug(
-                    "Verbinding testen met %s://%s:%s",
+                    "Verbinding testen met %s://%s:%s (User-Agent gepatcht)",
                     protocol,
                     self.config[CONF_HOST],
                     port,
@@ -150,7 +171,6 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
                 host_data = await self.hass.async_add_executor_job(ilo.get_host_data)
 
-                # Beter unique_id op basis van serial number
                 serial = (
                     host_data.get("serial_number")
                     or host_data.get("SerialNumber")
@@ -162,7 +182,6 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_configured(updates=self.config)
 
-                # Opslaan credentials
                 self.config[CONF_USERNAME] = user_input[CONF_USERNAME]
                 self.config[CONF_PASSWORD] = user_input[CONF_PASSWORD]
 
@@ -183,12 +202,15 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during iLO authentication")
                 errors["base"] = "unknown"
             finally:
-                # Verbinding netjes sluiten
                 if ilo is not None:
                     try:
                         await self.hass.async_add_executor_job(ilo._close)
                     except Exception:
-                        pass  # Negeer fouten bij sluiten
+                        pass
+
+                # Optioneel: patch terugzetten (niet strikt nodig in HA-context)
+                http.client.HTTPConnection = original_http
+                http.client.HTTPSConnection = original_https
 
         return self.async_show_form(
             step_id="auth",
@@ -202,7 +224,7 @@ class HpIloFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     # ---------------------------------------------------------------------
-    # YAML IMPORT (optioneel)
+    # YAML IMPORT
     # ---------------------------------------------------------------------
     async def async_step_import(self, import_info) -> FlowResult:
         """Import configuration from configuration.yaml."""
