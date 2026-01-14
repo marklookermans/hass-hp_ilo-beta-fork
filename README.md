@@ -4,6 +4,7 @@ This is a WIP component for an updated **HP Integrated Lights-Out (ILO)** compon
 
 There's still a lot from `custom-components/integration_blueprint` in this repo to keep track of a few missing things. It will eventually be cleaned up.
 
+based on the project created by : chkuendig/hass-hp_ilo-beta.
 
 hacs_badge
 
@@ -32,6 +33,8 @@ Basic:1.0 Device Definition](http://upnp.org/specs/basic/UPnP-basic-Basic-v1-Dev
 These all return slightly different data, but none seems to include all the information necessary (i.e. the correct UUID or the port/protocol of the REST api ).
 
 Basic Device seems to be the one most common and is already supported by Home Assistant, so I picked that.
+
+At the moment this project is converted to use redfish instead of basic xml. 
 
 
 ## Configuration
@@ -96,3 +99,4 @@ Config flow should support i18n.
 [![Community Forum][forum-shield]][forum]
 
 _Component to integrate with [hp_ilo][hp_ilo]._
+
