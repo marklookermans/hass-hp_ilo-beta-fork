@@ -2,7 +2,7 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 ![Project Maintenance](https://img.shields.io/badge/maintainer-Mark%20Lookermans-blue.svg)
-![Version](https://img.shields.io/badge/version-0.2.0-orange.svg)
+![Version](https://img.shields.io/badge/version-0.1.1-orange.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 An advanced, high-performance integration for monitoring and managing **HP ProLiant Servers** via iLO 3, 4, and 5. This fork is optimized for stability, speed, and deep Home Assistant integration.
@@ -85,5 +85,6 @@ Use these services in your automations or scripts:
 
 ## Credits
 Forked and improved from [chkuendig/hass-hp_ilo-beta](https://github.com/chkuendig/hass-hp_ilo-beta). Originally based on the Home Assistant core component.
+
 
 
