@@ -25,7 +25,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = entry
 
-    # Verbinding testen bij opstarten
     try:
         await hass.async_add_executor_job(
             lambda: hpilo.Ilo(
@@ -53,20 +52,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             if action == "reboot_server":
                 await hass.async_add_executor_job(ilo.warm_boot)
-                _LOGGER.info("iLO: Warm boot uitgevoerd op %s", entry.data[CONF_HOST])
             
             elif action == "shutdown_graceful":
-                await hass.async_add_executor_job(ilo.press_pwr_button)
-                _LOGGER.info("iLO: Graceful shutdown verzonden naar %s", entry.data[CONF_HOST])
+                # GEFIXT: Naam aangepast
+                await hass.async_add_executor_job(ilo.press_power_button)
             
             elif action == "shutdown_hard":
-                # GEFIXT: Gebruik hold=True voor press & hold (harde shutdown)
-                await hass.async_add_executor_job(lambda: ilo.press_pwr_button(hold=True))
-                _LOGGER.warning("iLO: HARD shutdown (Press & Hold) uitgevoerd op %s", entry.data[CONF_HOST])
+                # GEFIXT: Naam aangepast en hold=True
+                await hass.async_add_executor_job(lambda: ilo.press_power_button(hold=True))
             
             elif action == "power_on":
                 await hass.async_add_executor_job(ilo.set_host_power, True)
-                _LOGGER.info("iLO: Server ingeschakeld op %s", entry.data[CONF_HOST])
+
+            _LOGGER.info("iLO actie %s succesvol uitgevoerd op %s", action, entry.data[CONF_HOST])
 
         except Exception as err:
             _LOGGER.error("Fout tijdens iLO actie %s op %s: %s", action, entry.data[CONF_HOST], err)
