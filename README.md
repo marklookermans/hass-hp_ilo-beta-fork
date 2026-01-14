@@ -1,83 +1,61 @@
-HP Integrated Lights-Out (iLO) for Home Assistant 🚀
-This integration is an optimized fork designed to bring modern Home Assistant features to HP ProLiant servers. It supports iLO 3, 4, and 5 via a combination of the Redfish API and the legacy HP-iLO protocol.
+# HP Integrated Lights-Out (iLO) for Home Assistant 🚀
 
-✨ Key Features
-Smart Polling: Uses a DataUpdateCoordinator to fetch all server metrics in a single batch, preventing iLO CPU exhaustion.
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+![Project Maintenance](https://img.shields.io/badge/maintainer-Mark%20Lookermans-blue.svg)
+![Version](https://img.shields.io/badge/version-0.2.0-orange.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
 
-30s Update Interval: High-resolution monitoring for temperatures and fan speeds.
+An advanced, high-performance integration for monitoring and managing **HP ProLiant Servers** via iLO 3, 4, and 5. This fork is optimized for stability, speed, and deep Home Assistant integration.
 
-Full Power Control: Manage server power states directly from the UI or via automations.
+---
 
-Modern Config Flow: Easy setup via the integrations menu—no YAML configuration required.
+## 🌟 Key Improvements
 
-Auto-Discovery: Detects servers automatically on your network using SSDP and Redfish.
+| Feature | Description |
+| :--- | :--- |
+| **High Frequency** | Real-time monitoring with a default **30-second polling interval**. |
+| **Efficient** | Uses a `DataUpdateCoordinator` to fetch data in one batch, reducing iLO CPU load. |
+| **Actionable** | Includes **Buttons** and **Services** for power management (Power On, Reboot, Shutdown). |
+| **Modern** | Full support for **Config Flow** and **Auto-Discovery** (SSDP & Redfish). |
 
-🛠 Installation
-Open HACS in your Home Assistant instance.
+---
 
-Click the three dots in the top right corner and select Custom repositories.
+## 📦 Installation
 
-Add the URL of this repository and select Integration as the category.
+### Option 1: HACS (Recommended)
+1. Open **HACS** in Home Assistant.
+2. Click the three dots (top right) → **Custom repositories**.
+3. Paste this Repository URL and select **Integration** as the category.
+4. Search for `HP Integrated Lights-Out` and click **Install**.
+5. **Restart Home Assistant.**
 
-Search for HP Integrated Lights-Out (iLO) and click install.
+### Option 2: Manual
+1. Download the `hp_ilo` folder from `custom_components`.
+2. Paste it into your `/config/custom_components/` directory.
+3. **Restart Home Assistant.**
 
-Restart Home Assistant.
+---
 
-Navigate to Settings > Devices & Services and click Add Integration to configure your server.
+## 🚀 Setup & Discovery
+Once installed, go to **Settings** → **Devices & Services** → **Add Integration** and search for **HP iLO**.
 
-📊 Supported Entities
-Sensors
-Temperature: Real-time data for CPU, Memory, Ambient, and I/O zones.
+> [!TIP]
+> **Auto-Discovery:** For the best experience, enable **SSDP/Discovery** in your iLO Web Interface. This allows Home Assistant to find your server automatically.
 
-Fans: Speed percentage for all installed system fans.
 
-Power Status: Reports the current host power state (ON/OFF).
 
-Power On Time: Cumulative server uptime in minutes.
+---
 
-Buttons (Physical Actions)
-Power On: Boots the server if it is powered off.
+## 📊 Available Entities
 
-Reboot (Warm): Sends a reset signal (simulates Ctrl+Alt+Del).
+### 🌡️ Monitoring (Sensors)
+* **Environment:** Detailed temperature readings for CPU, Memory, I/O, and Ambient zones.
+* **Cooling:** Fan speed percentages for all system fans.
+* **Status:** Current Power State (ON/OFF) and Power-On time.
 
-Shutdown (Graceful): "Presses" the power button (signals the OS to shut down cleanly).
-
-Shutdown (Hard): Press & Hold action (simulates holding the button for 4 seconds) to force power-off.
-
-⚡ Services
-This integration registers services for use in scripts and automations:
-
-hp_ilo.power_on
-
-hp_ilo.reboot_server
-
-hp_ilo.shutdown_graceful
-
-hp_ilo.shutdown_hard (Press & Hold)
-
-⚙️ Technical Details
-This integration relies on two core Python libraries to communicate with your hardware:
-
-python-hpilo: Used for legacy RIBCL communication. This handles the specific "Press & Hold" power actions and health data on older iLO versions.
-
-python-redfish-library: Used during the discovery and configuration phase to identify modern iLO 5+ capabilities.
-
-Polling Architecture
-To protect the often-limited resources of the iLO management chip, this integration uses a centralized coordinator. Instead of each sensor (Temp, Fan, Power) asking the iLO for data independently, the coordinator performs one request every 30 seconds and distributes the data to all entities simultaneously.
-
-🔍 Discovery Setup
-To enable Auto-Discovery, ensure that SSDP/Discovery is enabled in your iLO Web Interface:
-
-🚧 Roadmap
-[x] Redfish-based Discovery.
-
-[x] Power Button Entity (with Press & Hold fix).
-
-[x] Centralized Data Caching.
-
-[ ] Binary Sensor for Global Health (Healthy/Critical).
-
-[ ] Firmware Update available notification.
-
-Credits
-Based on the original work by chkuendig/hass-hp_ilo-beta and the Home Assistant core contributors.
+### ⚡ Control (Buttons)
+The integration provides physical buttons on the device page for immediate action:
+* **Power On:** Starts the server.
+* **Reboot (Warm):** Triggers a warm restart (Soft Reset).
+* **Shutdown (Graceful):** Signals the OS to shut down cleanly.
+* **Shutdown (Hard):**
