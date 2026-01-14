@@ -1,102 +1,83 @@
-# Notice 🚧
+HP Integrated Lights-Out (iLO) for Home Assistant 🚀
+This integration is an optimized fork designed to bring modern Home Assistant features to HP ProLiant servers. It supports iLO 3, 4, and 5 via a combination of the Redfish API and the legacy HP-iLO protocol.
 
-This is a WIP component for an updated **HP Integrated Lights-Out (ILO)** component in Home Assistant.  The goal is to add a proper config flow with discovery and expose as much of the functonality of ILO as possible.
+✨ Key Features
+Smart Polling: Uses a DataUpdateCoordinator to fetch all server metrics in a single batch, preventing iLO CPU exhaustion.
 
-There's still a lot from `custom-components/integration_blueprint` in this repo to keep track of a few missing things. It will eventually be cleaned up.
+30s Update Interval: High-resolution monitoring for temperatures and fan speeds.
 
-based on the project created by : chkuendig/hass-hp_ilo-beta.
+Full Power Control: Manage server power states directly from the UI or via automations.
 
-hacs_badge
+Modern Config Flow: Easy setup via the integrations menu—no YAML configuration required.
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+Auto-Discovery: Detects servers automatically on your network using SSDP and Redfish.
 
-# Installation
-Add this repo as a custom repo to HACS and the integration should show up. At the moment there's no versioning of releases yet.
+🛠 Installation
+Open HACS in your Home Assistant instance.
 
-# Features
+Click the three dots in the top right corner and select Custom repositories.
 
-## Discovery
-**Status: Done ✅**
+Add the URL of this repository and select Integration as the category.
 
-For Auto Discovery to work, it has to be enabled in the iLO admin UI: 
-![ILO Screenshot](/screenshot_ilo_discovery.png?raw=true )
+Search for HP Integrated Lights-Out (iLO) and click install.
 
-For development & testing it also makes sense to set the interval low enough (default seems to be 10min)
+Restart Home Assistant.
 
-ILO servers are anouncing themselves on a few of SSDP search targets:
+Navigate to Settings > Devices & Services and click Add Integration to configure your server.
 
-* `urn:schemas-upnp-org:device:Basic:1` with details at `http://[IP]/upnp/BasicDevice.xml` (this implements the [UPnP 
-Basic:1.0 Device Definition](http://upnp.org/specs/basic/UPnP-basic-Basic-v1-Device.pdf) standard ). Luckily Home Assistant already implements this as part of the existing SSDP discovery mechanism.
-* `urn:dmtf-org:service:redfish-rest:1` with details at `https://[IP]/redfish/v1/` (this implements the [DMTF’s Redfish Standard](https://www.dmtf.org/standards/redfish)). See also https://stackoverflow.com/a/39153603 and https://hewlettpackard.github.io/ilo-rest-api-docs/ilo5/?shell#introduction. This could be added to Home Assistant with [python-redfish-library](https://pypi.org/project/redfish/  ) 
-* `urn:www-hp-com:service:Federation:2` - not clear where the details for this will end up at. I also didn't look into the underlying standard.
+📊 Supported Entities
+Sensors
+Temperature: Real-time data for CPU, Memory, Ambient, and I/O zones.
 
-These all return slightly different data, but none seems to include all the information necessary (i.e. the correct UUID or the port/protocol of the REST api ).
+Fans: Speed percentage for all installed system fans.
 
-Basic Device seems to be the one most common and is already supported by Home Assistant, so I picked that.
+Power Status: Reports the current host power state (ON/OFF).
 
-At the moment this project is converted to use redfish instead of basic xml. 
+Power On Time: Cumulative server uptime in minutes.
 
+Buttons (Physical Actions)
+Power On: Boots the server if it is powered off.
 
-## Configuration
-**Status: WIP ⏳** 
+Reboot (Warm): Sends a reset signal (simulates Ctrl+Alt+Del).
 
-The goal is to implement a clean config flow supporting a few things:
-- Regular setup flow for discovered devices as well as a manual setup flow.
-- Update of IPs and Hostname from discovery in case any of them change.
-- Import of existing sensors from configuration.yaml
-- It should be possible to enable/disable what sensors and other entities/platforms are added. (since this can quickly get out of hand)
+Shutdown (Graceful): "Presses" the power button (signals the OS to shut down cleanly).
 
+Shutdown (Hard): Press & Hold action (simulates holding the button for 4 seconds) to force power-off.
 
-## Platforms
-**Status: WIP ⏳**
+⚡ Services
+This integration registers services for use in scripts and automations:
 
-**This component will set up the following platforms.**
+hp_ilo.power_on
 
-Platform | Description
--- | --
-`binary_sensor` | Show something `True` or `False`.
-`sensor` | Show info from blueprint API.
-`switch` | Switch something `True` or `False`.
+hp_ilo.reboot_server
 
-The existing sensors only implement the sensor entity. Ideally a few more things would be nice:
-- Automatically generate all supported entities automatically. 
-- Device entity with as much information as possile about the system configuration
-- Binary sensor for firmware update status, power
-- Buttons for [Firmware upgrades](
-https://seveas.github.io/python-hpilo/firmware.html) and [reboots/restarts](https://seveas.github.io/python-hpilo/power.html) etc.
-- Switches for Power on/Off
-- Fan entities for fans
-There's already a few PRs to improve on this:  https://github.com/home-assistant/core/pull/65900,  https://github.com/home-assistant/core/pull/32209
+hp_ilo.shutdown_graceful
 
+hp_ilo.shutdown_hard (Press & Hold)
 
-## Caching 
-**Status: Planned 🔜**
+⚙️ Technical Details
+This integration relies on two core Python libraries to communicate with your hardware:
 
-Startup and refresh is currently not optimized, slowing this integration down quite a bit. It also seems that data isn't shared between sensors, meaning the rate limiting is resulting in very coarse grained data once there's more then a handful of sensors active.
+python-hpilo: Used for legacy RIBCL communication. This handles the specific "Press & Hold" power actions and health data on older iLO versions.
 
-## Tests
-**Status: Planned 🔜**
+python-redfish-library: Used during the discovery and configuration phase to identify modern iLO 5+ capabilities.
 
-There's actually no tests at all in Home Assistant for this component right now.
-Most features should be able to be tested with the existing mock data in `python-hpilo`. 
+Polling Architecture
+To protect the often-limited resources of the iLO management chip, this integration uses a centralized coordinator. Instead of each sensor (Temp, Fan, Power) asking the iLO for data independently, the coordinator performs one request every 30 seconds and distributes the data to all entities simultaneously.
 
-## Strings and Translations
-**Status: Planned 🔜**
+🔍 Discovery Setup
+To enable Auto-Discovery, ensure that SSDP/Discovery is enabled in your iLO Web Interface:
 
-Config flow should support i18n. 
+🚧 Roadmap
+[x] Redfish-based Discovery.
 
-# integration_blueprint
+[x] Power Button Entity (with Press & Hold fix).
 
-[![GitHub Release][releases-shield]][releases]
-[![GitHub Activity][commits-shield]][commits]
-[![License][license-shield]](LICENSE)
+[x] Centralized Data Caching.
 
-[![hacs][hacsbadge]][hacs]
-![Project Maintenance][maintenance-shield]
-[![BuyMeCoffee][buymecoffeebadge]][buymecoffee]
+[ ] Binary Sensor for Global Health (Healthy/Critical).
 
-[![Discord][discord-shield]][discord]
-[![Community Forum][forum-shield]][forum]
+[ ] Firmware Update available notification.
 
-_Component to integrate with [hp_ilo][hp_ilo]._
-
+Credits
+Based on the original work by chkuendig/hass-hp_ilo-beta and the Home Assistant core contributors.
