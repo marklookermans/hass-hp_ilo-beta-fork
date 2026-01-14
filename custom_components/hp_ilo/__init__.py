@@ -21,26 +21,11 @@ PLATFORMS = [Platform.SENSOR, Platform.BUTTON]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up entities of all platforms from a config entry."""
-    
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = entry
 
-    try:
-        await hass.async_add_executor_job(
-            lambda: hpilo.Ilo(
-                hostname=entry.data[CONF_HOST],
-                login=entry.data[CONF_USERNAME],
-                password=entry.data[CONF_PASSWORD],
-                port=entry.data.get(CONF_PORT, 443),
-            )
-        )
-    except Exception as err:
-        raise ConfigEntryNotReady(f"iLO niet bereikbaar: {err}")
-
-    # --- Service Handler ---
-    
     async def handle_power_action(call: ServiceCall):
-        """Voer een power actie uit."""
+        """Handle power actions via services."""
         ilo = hpilo.Ilo(
             hostname=entry.data[CONF_HOST],
             login=entry.data[CONF_USERNAME],
@@ -52,28 +37,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             if action == "reboot_server":
                 await hass.async_add_executor_job(ilo.warm_boot)
-            
             elif action == "shutdown_graceful":
-                # GEFIXT: Naam aangepast
-                await hass.async_add_executor_job(ilo.press_power_button)
-            
+                # GEFIXT: press_pwr_button
+                await hass.async_add_executor_job(ilo.press_pwr_button)
             elif action == "shutdown_hard":
-                # GEFIXT: Naam aangepast en hold=True
-                await hass.async_add_executor_job(lambda: ilo.press_power_button(hold=True))
-            
+                # GEFIXT: press_pwr_button(hold=True)
+                await hass.async_add_executor_job(lambda: ilo.press_pwr_button(hold=True))
             elif action == "power_on":
                 await hass.async_add_executor_job(ilo.set_host_power, True)
-
-            _LOGGER.info("iLO actie %s succesvol uitgevoerd op %s", action, entry.data[CONF_HOST])
-
+            
+            _LOGGER.info("iLO action %s executed on %s", action, entry.data[CONF_HOST])
         except Exception as err:
-            _LOGGER.error("Fout tijdens iLO actie %s op %s: %s", action, entry.data[CONF_HOST], err)
+            _LOGGER.error("Error executing %s on %s: %s", action, entry.data[CONF_HOST], err)
 
-    # Services registreren
-    hass.services.async_register(DOMAIN, "reboot_server", handle_power_action)
-    hass.services.async_register(DOMAIN, "shutdown_graceful", handle_power_action)
-    hass.services.async_register(DOMAIN, "shutdown_hard", handle_power_action)
-    hass.services.async_register(DOMAIN, "power_on", handle_power_action)
+    # Register services
+    for service in ["reboot_server", "shutdown_graceful", "shutdown_hard", "power_on"]:
+        hass.services.async_register(DOMAIN, service, handle_power_action)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -83,7 +62,4 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
-        if not hass.data[DOMAIN]:
-            for service in ["reboot_server", "shutdown_graceful", "shutdown_hard", "power_on"]:
-                hass.services.async_remove(DOMAIN, service)
     return unload_ok
